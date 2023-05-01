@@ -1,5 +1,9 @@
 # WebStore-bench
 
+
+----------Deadline: May 15-23.-------------
+
+
 Used for making new changes and testing storefront websites.
 
 HTML, CSS and JavaScript may be needed, especially if you'd want to make animated elements within said webstore.
@@ -18,7 +22,5 @@ requirements:
 - JavaScript for animated features.
 - photos of products
 
-
-deadline: May 15-23.
 
 you may use other tools to make your website. Don't forget to get your domain once you're able to. (should be listed in the "CNAM" file)
