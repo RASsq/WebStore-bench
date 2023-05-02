@@ -23,4 +23,4 @@ requirements:
 - photos of products
 
 
-you may use other tools to make your website. Don't forget to get your domain once you're able to. (should be listed in the "CNAM" file)
+you may use other tools to make your website. Don't forget to get your domain once you're able to. (should be listed in the "CNAME" file)
