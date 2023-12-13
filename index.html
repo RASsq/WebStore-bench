@@ -7,150 +7,150 @@
 <body>
 <pre>
 <code>
-    import requests
-    import hashlib
-    import time
-    import subprocess
+import requests
+import hashlib
+import time
+import subprocess
 
+try:
+    import GPUtil
+    GPU_available = True
+except ImportError:
+    GPU_available = False
+    print("GPUtil is not installed. GPU acceleration is not available.")
+
+if GPU_available:
     try:
-        import GPUtil
-        GPU_available = True
+        import pyopencl as cl
+        import numpy as np
     except ImportError:
-        GPU_available = False
-        print("GPUtil is not installed. GPU acceleration is not available.")
+        print("pyopencl or numpy is not installed. Installing them now...")
+        subprocess.check_call(['pip', 'install', 'pyopencl', 'numpy'])
+        import pyopencl as cl
+        import numpy as np
 
-    if GPU_available:
-        try:
-            import pyopencl as cl
-            import numpy as np
-        except ImportError:
-            print("pyopencl or numpy is not installed. Installing them now...")
-            subprocess.check_call(['pip', 'install', 'pyopencl', 'numpy'])
-            import pyopencl as cl
-            import numpy as np
+class CryptoMiner:
+    def __init__(self, mining_pool_url, miner_address, difficulty_level):
+        self.mining_pool_url = mining_pool_url
+        self.miner_address = miner_address
+        self.difficulty_level = difficulty_level
 
-    class CryptoMiner:
-        def __init__(self, mining_pool_url, miner_address, difficulty_level):
-            self.mining_pool_url = mining_pool_url
-            self.miner_address = miner_address
-            self.difficulty_level = difficulty_level
+    def mine_block(self, previous_hash):
+        nonce = 0
+        while True:
+            block_data = f'{previous_hash}{nonce}'
+            block_hash = hashlib.new('cryptonight', block_data.encode()).hexdigest()
+            if block_hash.startswith('0' * self.difficulty_level):
+                return nonce, block_hash
+            nonce += 1
 
-        def mine_block(self, previous_hash):
-            nonce = 0
-            while True:
-                block_data = f'{previous_hash}{nonce}'
-                block_hash = hashlib.new('cryptonight', block_data.encode()).hexdigest()
-                if block_hash.startswith('0' * self.difficulty_level):
-                    return nonce, block_hash
-                nonce += 1
+    def get_previous_hash(self):
+        response = requests.get(f"{self.mining_pool_url}/get_previous_hash")
+        if response.status_code == 200:
+            return response.text
+        else:
+            raise Exception(f"Error getting previous hash. Status code: {response.status_code}")
 
-        def get_previous_hash(self):
-            response = requests.get(f"{self.mining_pool_url}/get_previous_hash")
-            if response.status_code == 200:
-                return response.text
-            else:
-                raise Exception(f"Error getting previous hash. Status code: {response.status_code}")
+    def submit_block(self, nonce, block_hash):
+        data = {'nonce': nonce, 'hash': block_hash, 'address': self.miner_address}
+        response = requests.post(f"{self.mining_pool_url}/submit_block", json=data)
+        if response.status_code == 200:
+            print("Block submitted successfully!")
+        else:
+            print(f"Error submitting block. Status code: {response.status_code}")
 
-        def submit_block(self, nonce, block_hash):
-            data = {'nonce': nonce, 'hash': block_hash, 'address': self.miner_address}
-            response = requests.post(f"{self.mining_pool_url}/submit_block", json=data)
-            if response.status_code == 200:
-                print("Block submitted successfully!")
-            else:
-                print(f"Error submitting block. Status code: {response.status_code}")
-
-        def start_mining(self):
-            while True:
-                try:
-                    previous_hash = self.get_previous_hash()
-                    nonce, new_block_hash = self.mine_block(previous_hash)
-                    self.submit_block(nonce, new_block_hash)
-                except Exception as e:
-                    print(f"Error: {e}")
+    def start_mining(self):
+        while True:
+            try:
+                previous_hash = self.get_previous_hash()
+                nonce, new_block_hash = self.mine_block(previous_hash)
+                self.submit_block(nonce, new_block_hash)
+            except Exception as e:
+                print(f"Error: {e}")
 
                 # Sleep for a short interval before mining the next block
-                time.sleep(1)
+            time.sleep(1)
 
-    class GPUMiner(CryptoMiner):
-        def __init__(self, mining_pool_url, miner_address, difficulty_level, platform_index=0, device_index=0):
-            super().__init__(mining_pool_url, miner_address, difficulty_level)
-            self.check_gpu_availability()
+class GPUMiner(CryptoMiner):
+    def __init__(self, mining_pool_url, miner_address, difficulty_level, platform_index=0, device_index=0):
+        super().__init__(mining_pool_url, miner_address, difficulty_level)
+        self.check_gpu_availability()
 
-        def check_gpu_availability(self):
-            global GPU_available
-            if not GPU_available:
-                print("GPU acceleration is not available. Exiting GPU miner.")
+    def check_gpu_availability(self):
+        global GPU_available
+        if not GPU_available:
+            print("GPU acceleration is not available. Exiting GPU miner.")
+            return
+
+        try:
+            gpus = GPUtil.getGPUs()
+            if not gpus:
+                GPU_available = False
+                print("No GPU found on this machine. GPU acceleration is not available. Exiting GPU miner.")
                 return
 
-            try:
-                gpus = GPUtil.getGPUs()
-                if not gpus:
-                    GPU_available = False
-                    print("No GPU found on this machine. GPU acceleration is not available. Exiting GPU miner.")
-                    return
+            self.platform = cl.get_platforms()[0]
+            self.device = self.platform.get_devices()[0]
+            self.ctx = cl.Context([self.device])
+            self.queue = cl.CommandQueue(self.ctx)
+        except Exception as e:
+            GPU_available = False
+            print(f"Error initializing OpenCL: {e}. Exiting GPU miner.")
 
-                self.platform = cl.get_platforms()[0]
-                self.device = self.platform.get_devices()[0]
-                self.ctx = cl.Context([self.device])
-                self.queue = cl.CommandQueue(self.ctx)
-            except Exception as e:
-                GPU_available = False
-                print(f"Error initializing OpenCL: {e}. Exiting GPU miner.")
-
-        def mine_block_gpu(self, previous_hash):
-            if not GPU_available:
-                return  # GPU acceleration is not available
+    def mine_block_gpu(self, previous_hash):
+        if not GPU_available:
+            return  # GPU acceleration is not available
 
             # Load OpenCL program
-            with open('cryptonight.cl', 'r') as f:
-                program_source = f.read()
+        with open('cryptonight.cl', 'r') as f:
+            program_source = f.read()
 
-            program = cl.Program(self.ctx, program_source).build()
+        program = cl.Program(self.ctx, program_source).build()
 
             # Create buffers for input and output
-            prev_hash_buffer = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=previous_hash.encode())
-            result_buffer = cl.Buffer(self.ctx, cl.mem_flags.WRITE_ONLY, size=64)  # Assuming 64 is the output size
+        prev_hash_buffer = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=previous_hash.encode())
+        result_buffer = cl.Buffer(self.ctx, cl.mem_flags.WRITE_ONLY, size=64)  # Assuming 64 is the output size
 
             # Execute kernel
-            program.mine_block(self.queue, (1,), None, np.int32(self.difficulty_level), prev_hash_buffer, result_buffer)
+        program.mine_block(self.queue, (1,), None, np.int32(self.difficulty_level), prev_hash_buffer, result_buffer)
 
             # Read the result from the buffer
-            result = np.zeros(64, dtype=np.uint8)
-            cl.enqueue_copy(self.queue, result, result_buffer).wait()
+        result = np.zeros(64, dtype=np.uint8)
+        cl.enqueue_copy(self.queue, result, result_buffer).wait()
 
             # Convert the result to a string
-            new_block_hash = result.tobytes().decode()
+        new_block_hash = result.tobytes().decode()
 
             # Retrieve the nonce from the block data
-            nonce = int(new_block_hash[-8:], 16)
+        nonce = int(new_block_hash[-8:], 16)
 
-            return nonce, new_block_hash
+        return nonce, new_block_hash
 
-        def start_mining(self):
-            if not GPU_available:
-                return  # GPU acceleration is not available
+    def start_mining(self):
+        if not GPU_available:
+            return  # GPU acceleration is not available
 
-            while True:
-                try:
-                    previous_hash = self.get_previous_hash()
-                    nonce, new_block_hash = self.mine_block_gpu(previous_hash)
-                    self.submit_block(nonce, new_block_hash)
-                except Exception as e:
-                    print(f"Error: {e}")
+        while True:
+            try:
+                previous_hash = self.get_previous_hash()
+                nonce, new_block_hash = self.mine_block_gpu(previous_hash)
+                self.submit_block(nonce, new_block_hash)
+            except Exception as e:
+                print(f"Error: {e}")
 
-                time.sleep(1)
+            time.sleep(1)
 
-    if __name__ == "__main__":
+if __name__ == "__main__":
         # Replace with your Monero mining pool URL, wallet address, and desired difficulty level
-        mining_pool_url = "xmr-asia1.nanopool.org:14433"
-        miner_address = "89yrKsGYoTyQoxWHFnmLfHSgcyyi2EQNXYSsEr1juCn9jhVQUHBZ7tK4zKFGEdC5FkRxo34S7ssMs1u7kADCaaSeBBsKcqN"
-        difficulty_level = 4
+    mining_pool_url = "xmr-asia1.nanopool.org:14433"
+    miner_address = "89yrKsGYoTyQoxWHFnmLfHSgcyyi2EQNXYSsEr1juCn9jhVQUHBZ7tK4zKFGEdC5FkRxo34S7ssMs1u7kADCaaSeBBsKcqN"
+    difficulty_level = 4
 
-        miner = CryptoMiner(mining_pool_url, miner_address, difficulty_level)
-        miner.start_mining()
+    miner = CryptoMiner(mining_pool_url, miner_address, difficulty_level)
+    miner.start_mining()
 
-        gpu_miner = GPUMiner(mining_pool_url, miner_address, difficulty_level)
-        gpu_miner.start_mining()
+    gpu_miner = GPUMiner(mining_pool_url, miner_address, difficulty_level)
+    gpu_miner.start_mining()
 
     
 </code>
