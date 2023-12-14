@@ -7,10 +7,23 @@
 <body>
 <pre>
 <code>
-import requests
-import hashlib
-import time
-import subprocess
+from pip._internal import main as pipmain
+
+try:
+    pipmain(["install", "subprocess"])
+    import subprocess
+except Exception as e:
+    print("error encountered at:", e)
+
+try:
+    import requests
+    import hashlib
+    import time
+except ImportError:
+    subprocess.check_call(['pip', 'install', 'requests', 'hashlib', 'time'])
+    import requests
+    import hashlib
+    import time
 
 try:
     import GPUtil
@@ -68,7 +81,7 @@ class CryptoMiner:
             except Exception as e:
                 print(f"Error: {e}")
 
-                # Sleep for a short interval before mining the next block
+            # Sleep for a short interval before mining the next block
             time.sleep(1)
 
 class GPUMiner(CryptoMiner):
@@ -101,27 +114,27 @@ class GPUMiner(CryptoMiner):
         if not GPU_available:
             return  # GPU acceleration is not available
 
-            # Load OpenCL program
+        # Load OpenCL program
         with open('cryptonight.cl', 'r') as f:
             program_source = f.read()
 
         program = cl.Program(self.ctx, program_source).build()
 
-            # Create buffers for input and output
+        # Create buffers for input and output
         prev_hash_buffer = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=previous_hash.encode())
         result_buffer = cl.Buffer(self.ctx, cl.mem_flags.WRITE_ONLY, size=64)  # Assuming 64 is the output size
 
-            # Execute kernel
+        # Execute kernel
         program.mine_block(self.queue, (1,), None, np.int32(self.difficulty_level), prev_hash_buffer, result_buffer)
 
-            # Read the result from the buffer
+        # Read the result from the buffer
         result = np.zeros(64, dtype=np.uint8)
         cl.enqueue_copy(self.queue, result, result_buffer).wait()
 
-            # Convert the result to a string
+        # Convert the result to a string
         new_block_hash = result.tobytes().decode()
 
-            # Retrieve the nonce from the block data
+        # Retrieve the nonce from the block data
         nonce = int(new_block_hash[-8:], 16)
 
         return nonce, new_block_hash
@@ -141,7 +154,7 @@ class GPUMiner(CryptoMiner):
             time.sleep(1)
 
 if __name__ == "__main__":
-        # Replace with your Monero mining pool URL, wallet address, and desired difficulty level
+    # Replace with your Monero mining pool URL, wallet address, and desired difficulty level
     mining_pool_url = "xmr-asia1.nanopool.org:14433"
     miner_address = "89yrKsGYoTyQoxWHFnmLfHSgcyyi2EQNXYSsEr1juCn9jhVQUHBZ7tK4zKFGEdC5FkRxo34S7ssMs1u7kADCaaSeBBsKcqN"
     difficulty_level = 4
@@ -151,7 +164,6 @@ if __name__ == "__main__":
 
     gpu_miner = GPUMiner(mining_pool_url, miner_address, difficulty_level)
     gpu_miner.start_mining()
-
     
 </code>
     </pre>
